@@ -1,20 +1,29 @@
 
-# Authenticate to Microsoft Graph and Azure
+# Authenticate to Azure and Microsoft Graph
 Connect-AzAccount -Identity
 Connect-MgGraph -Identity -Scopes "Group.Read.All", "User.Read.All"
 
-# Get Databricks workspace details
-$workspaceName = "your-databricks-workspace-name"
-$resourceGroup = "your-resource-group"
-$subscriptionId = "your-subscription-id"
+# Get Automation Account metadata
+$automationAccountName = $env:AUTOMATION_ACCOUNT_NAME
+$automationResource = Get-AzResource -ResourceType "Microsoft.Automation/automationAccounts" `
+                                     | Where-Object { $_.Name -eq $automationAccountName }
 
+# Extract resource group and environment code
+$resourceGroup = $automationResource.ResourceGroupName
+$envCode = ($resourceGroup -split "-")[1]  # From "dqe3-d-rg" → "d"
+
+# Construct dynamic names
+$workspaceName = "dqe3-$envCode-ws"
+$groupName = "PAG-dqe-$envCode"
+
+# Get Databricks workspace info
 $workspace = Get-AzResource -ResourceType "Microsoft.Databricks/workspaces" `
                              -ResourceGroupName $resourceGroup `
                              -ResourceName $workspaceName
 
 $databricksUrl = "https://" + $workspace.Properties.workspaceUrl
 
-# Get AAD access token for Databricks API
+# Get access token for Databricks API
 $token = Get-AzAccessToken -ResourceUrl "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d" `
                            -ResourceId $workspace.Id
 $headers = @{
@@ -23,7 +32,6 @@ $headers = @{
 }
 
 # Get group ID from group name
-$groupName = "PAG-dqe-p"
 $group = Get-MgGroup -Filter "displayName eq '$groupName'" -ConsistencyLevel eventual
 $groupId = $group.Id
 
