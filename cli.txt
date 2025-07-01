@@ -1,0 +1,19 @@
+#!/bin/bash
+
+RG_NAME="dqe3-d-rg"
+AUTOMATION_ACCOUNT="databricksUserSync"
+RUNBOOK_NAME="SyncDatabricksUsers"
+RUNBOOK_FILE="./runbook_dynamic_env.ps1"
+
+# Upload content
+az automation runbook replace-content \
+  --resource-group "$RG_NAME" \
+  --automation-account-name "$AUTOMATION_ACCOUNT" \
+  --name "$RUNBOOK_NAME" \
+  --content-path "$RUNBOOK_FILE"
+
+# Publish runbook
+az automation runbook publish \
+  --resource-group "$RG_NAME" \
+  --automation-account-name "$AUTOMATION_ACCOUNT" \
+  --name "$RUNBOOK_NAME"
