@@ -1,4 +1,6 @@
 azure-identity
 azure-keyvault-secrets
+azure-mgmt-resource
+azure-mgmt-subscription
 msgraph-core
 requests
