@@ -1,150 +1,27 @@
-parameters:
+$ErrorActionPreference = "Stop"
 
-  - name: targetEnvironment
-    displayName: Target Environment
-    type: string
-    default: development
-    values:
-      - development
-      - test
-      - acceptance
-      - production
+$ObjectId = ${{ parameters.ObjectId }}
+$Scope = ${{ parameters.Scope }}
+$RoleDefinitionName = ${{ parameters.RoleDefinitionName }}
 
-  - name: ObjectId 
-    displayName: "Object ID to remove access (Format: xxxx-xxx-xxx-xxx-xxx)"
-    type: string
+Write-Output "ObjectId: $ObjectId"
+Write-Output "Scope: $Scope"
+Write-Output "RoleDefinitionName: $RoleDefinitionName"
 
-  - name: Scope
-    displayName: "Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)"
-    type: string
+$roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId | Where-Object {
+    $_.RoleDefinitionName -eq $RoleDefinitionName -and $_.Scope -eq $Scope
+}
 
-  - name: RoleDefinitionName
-    displayName: Name of the Role to be removed (Reader, Contributor, etc)
-    type: string
-
-
-variables:
-  - group: Abnamro.Coesd.VariableGroup.GlobalVars 
-  - template: ../parameter/global.variables.yml
-  - template: ../parameter/${{parameters.targetEnvironment}}.variables.yml  
-
-trigger: none
-
-pr: none
-
-stages:
-  # create identities(Service principal and UAMI)
-  - stage: RemoveRBACStage
-    displayName: Remove RBAC Role
-
-    jobs:
-
-    - job: RemoveRBAC
-      displayName: Remove RBAC Role
-
-      steps:
-
-      - task: AzurePowerShell@5
-        name: RemoveRBACStep
-        displayName: "Remove RBAC Role"
-        inputs:
-          azurePowerShellVersion: LatestVersion
-          azureSubscription: '${{ variables.ResourceGroupName }}'
-          ScriptType: InlineScript
-          Inline: |
-
-            $ErrorActionPreference = "Stop"
-
-            $ObjectId = "${{ parameters.ObjectId }}"
-            $Scope = "${{ parameters.Scope }}"
-            $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
-
-            Write-Output "ObjectId: $ObjectId"
-            Write-Output "Scope: $Scope"
-            Write-Output "RoleDefinitionName: $RoleDefinitionName"
-        
-
-
-            # Verify the role assignment exists
-            $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope
-
-            if ($roleAssignments -eq $null) {
-                Write-Output "No role assignments found for ObjectId: $ObjectId in Scope: $Scope"
-            }
-
-            # Print the role assignments to check the details
-            Write-Output "Existing Role Assignments:"
-            $roleAssignments | Format-Table -Property RoleDefinitionName, Scope, PrincipalId, PrincipalType -AutoSize -Wrap
-
-            # Confirm the specific role assignment
-            $roleAssignment = $roleAssignments | Where-Object {
-                $_.RoleDefinitionName -eq $RoleDefinitionName -and
-                $_.Scope -eq $Scope
-            }
-
-            if ($roleAssignment) {
-                Write-Output "Role assignment found. Proceeding to remove $roleAssignment."
-                Write-Output "ObjectID: $ObjectId"
-                Write-Output "Scope: $Scope"
-                Write-Output "RoleDefinitionName: $RoleDefinitionName"
-                Try {
-                    Remove-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -RoleDefinitionName $RoleDefinitionName -Verbose -Debug
-                    Write-Output "Role assignment removed successfully."
-                } Catch {
-                    Write-Error "An error occurred while trying to remove the role assignment: $_"
-                    Write-Error "Error Details: $($_.Exception.Message)"
-                }
-
-            } else {
-                Write-Error "Failed to remove role assignment. It does not exist or parameters are incorrect."
-            }
-
-YAML pipeline, when run, gives this error:
-
-Remove RBAC Role
-
-View raw log
-
-Starting: Remove RBAC Role
-==============================================================================
-Task         : Azure PowerShell
-Description  : Run a PowerShell script within an Azure environment
-Version      : 5.257.0
-Author       : Microsoft Corporation
-Help         : https://aka.ms/azurepowershelltroubleshooting
-==============================================================================
-AZUREPS_HOST_ENVIRONMENT: ADO/AzurePowerShell@v5_Linux_Azure Pipelines 6_Remove Role Assignment_13039077__
-Generating script.
-/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command . '/home/vsts/work/_temp/42e10f4f-418e-4b65-8da2-c28a9eb8777b.ps1'
-File saved!
-Import-Module -Name /usr/share/az_12.1.0/Az.Accounts/5.1.0/Az.Accounts.psd1 -Global
-Clear-AzContext -Scope Process
-Clear-AzContext -Scope CurrentUser -Force -ErrorAction SilentlyContinue
-Connect-AzAccount -ServicePrincipal -Tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d -Credential System.Management.Automation.PSCredential -Environment AzureCloud @processScope
- Set-AzContext -SubscriptionId 1e59c1b9-0d0b-4410-91e5-31b1a7a4929c -TenantId 3a15904d-3fd9-4256-a753-beb05cdf0c6d
-ObjectId: 78a14cb0-a4a8-46a3-9476-baccae4fb9fe
-Scope: /subscriptions/1e59c1b9-0d0b-4410-91e5-31b1a7a4929c/resourceGroups/dqe3-p-rg/providers/Microsoft.DataFactory/factories/dqe3-p-01-adf
-RoleDefinitionName: Data Factory Contributor
-Existing Role Assignments:
-
-RoleDefinitionName                       Scope
-------------------                       -----                                 
-Data Factory Contributor                 /subscriptions/1e59c1b9-0d0b-4410-91e5
-                                         -31b1a7a4929c/resourcegroups/dqe3-p-rg
-                                         /providers/Microsoft.DataFactory/facto
-                                         ries/dqe3-p-01-adf
-Landing Zone Resource Group [Production] /subscriptions/1e59c1b9-0d0b-4410-91e5
-                                         -31b1a7a4929c/resourceGroups/dqe3-p-rg
-Landing Zone Subscription [Production]   /subscriptions/1e59c1b9-0d0b-4410-91e5
-                                         -31b1a7a4929c
-Log Analytics Contributor                /subscriptions/1e59c1b9-0d0b-4410-91e5
-                                         -31b1a7a4929c/resourceGroups/dqe3-p-rg
-
-Role assignment found. Proceeding to remove Microsoft.Azure.Commands.Resources.Models.Authorization.PSRoleAssignment.
-ObjectID: 78a14cb0-a4a8-46a3-9476-baccae4fb9fe
-Scope: /subscriptions/1e59c1b9-0d0b-4410-91e5-31b1a7a4929c/resourceGroups/dqe3-p-rg/providers/Microsoft.DataFactory/factories/dqe3-p-01-adf
-RoleDefinitionName: Data Factory Contributor
-DEBUG: 13:08:59 - [ConfigManager] Got nothing from [DisplaySecretsWarning], Module = [], Cmdlet = []. Returning default value [True].
-DEBUG: 13:08:59 - RemoveAzureRoleAssignmentCommand begin processing with ParameterSet 'EmptyParameterSet'.
-DEBUG: 13:08:59 - using account id '***'...
-
+if (-not $roleAssignments) {
+    Write-Output "No matching role assignments found."
+} else {
+    foreach ($assignment in $roleAssignments) {
+        Write-Output "Removing RoleAssignmentId: $($assignment.Id)"
+        try {
+            Remove-AzRoleAssignment -RoleAssignmentId $assignment.Id -Verbose
+            Write-Output "Removed successfully."
+        } catch {
+            Write-Error "Failed to remove role assignment: $_"
+        }
+    }
+}
