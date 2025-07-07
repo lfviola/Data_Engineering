@@ -101,6 +101,10 @@ stages:
 
 YAML pipeline, when run, gives this error:
 
+Remove RBAC Role
+
+View raw log
+
 Starting: Remove RBAC Role
 ==============================================================================
 Task         : Azure PowerShell
@@ -109,20 +113,38 @@ Version      : 5.257.0
 Author       : Microsoft Corporation
 Help         : https://aka.ms/azurepowershelltroubleshooting
 ==============================================================================
-AZUREPS_HOST_ENVIRONMENT: ADO/AzurePowerShell@v5_Linux_Azure Pipelines 3_Remove Role Assignment_13038285__
+AZUREPS_HOST_ENVIRONMENT: ADO/AzurePowerShell@v5_Linux_Azure Pipelines 6_Remove Role Assignment_13039077__
 Generating script.
-/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command . '/home/vsts/work/_temp/5bd89960-4add-4499-9509-be0ccf79de24.ps1'
+/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command . '/home/vsts/work/_temp/42e10f4f-418e-4b65-8da2-c28a9eb8777b.ps1'
 File saved!
-ParserError: /home/vsts/work/_temp/5bd89960-4add-4499-9509-be0ccf79de24.ps1:7
-Line |
-   7 |  $Scope = ""/subscriptions/1e59c1b9-0d0b-4410-91e5-31b1a7a4929c/resour …
-     |              ~
-     | You must provide a value expression following the '/' operator.
+Import-Module -Name /usr/share/az_12.1.0/Az.Accounts/5.1.0/Az.Accounts.psd1 -Global
+Clear-AzContext -Scope Process
+Clear-AzContext -Scope CurrentUser -Force -ErrorAction SilentlyContinue
+Connect-AzAccount -ServicePrincipal -Tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d -Credential System.Management.Automation.PSCredential -Environment AzureCloud @processScope
+ Set-AzContext -SubscriptionId 1e59c1b9-0d0b-4410-91e5-31b1a7a4929c -TenantId 3a15904d-3fd9-4256-a753-beb05cdf0c6d
+ObjectId: 78a14cb0-a4a8-46a3-9476-baccae4fb9fe
+Scope: /subscriptions/1e59c1b9-0d0b-4410-91e5-31b1a7a4929c/resourceGroups/dqe3-p-rg/providers/Microsoft.DataFactory/factories/dqe3-p-01-adf
+RoleDefinitionName: Data Factory Contributor
+Existing Role Assignments:
 
-##[error]PowerShell exited with code '1'.
-/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command . '/home/vsts/work/_tasks/AzurePowerShell_72a1931b-effb-4d2e-8fd8-f8472a07cb62/5.257.0/RemoveAzContext.ps1'
-Disconnect-AzAccount -Scope CurrentUser -ErrorAction Stop
-Disconnect-AzAccount -Scope Process -ErrorAction Stop
-Clear-AzContext -Scope Process -ErrorAction Stop
+RoleDefinitionName                       Scope
+------------------                       -----                                 
+Data Factory Contributor                 /subscriptions/1e59c1b9-0d0b-4410-91e5
+                                         -31b1a7a4929c/resourcegroups/dqe3-p-rg
+                                         /providers/Microsoft.DataFactory/facto
+                                         ries/dqe3-p-01-adf
+Landing Zone Resource Group [Production] /subscriptions/1e59c1b9-0d0b-4410-91e5
+                                         -31b1a7a4929c/resourceGroups/dqe3-p-rg
+Landing Zone Subscription [Production]   /subscriptions/1e59c1b9-0d0b-4410-91e5
+                                         -31b1a7a4929c
+Log Analytics Contributor                /subscriptions/1e59c1b9-0d0b-4410-91e5
+                                         -31b1a7a4929c/resourceGroups/dqe3-p-rg
 
-Finishing: Remove RBAC Role
+Role assignment found. Proceeding to remove Microsoft.Azure.Commands.Resources.Models.Authorization.PSRoleAssignment.
+ObjectID: 78a14cb0-a4a8-46a3-9476-baccae4fb9fe
+Scope: /subscriptions/1e59c1b9-0d0b-4410-91e5-31b1a7a4929c/resourceGroups/dqe3-p-rg/providers/Microsoft.DataFactory/factories/dqe3-p-01-adf
+RoleDefinitionName: Data Factory Contributor
+DEBUG: 13:08:59 - [ConfigManager] Got nothing from [DisplaySecretsWarning], Module = [], Cmdlet = []. Returning default value [True].
+DEBUG: 13:08:59 - RemoveAzureRoleAssignmentCommand begin processing with ParameterSet 'EmptyParameterSet'.
+DEBUG: 13:08:59 - using account id '***'...
+
