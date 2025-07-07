@@ -1,22 +1,27 @@
-$roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope | Where-Object {
-    $_.RoleDefinitionName -eq $RoleDefinitionName
-}
+- task: AzureCLI@2
+  displayName: "Check SPN Role Assignment Permissions"
+  inputs:
+    azureSubscription: '<your-service-connection-name>'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      echo "Verificando permissões do SPN..."
+      
+      TARGET_SCOPE="${{ parameters.Scope }}"
+      echo "Scope alvo: $TARGET_SCOPE"
 
-if (-not $roleAssignments) {
-    Write-Output "No matching role assignments found directly at the specified scope."
-} else {
-    foreach ($assignment in $roleAssignments) {
-        Write-Output "Attempting to remove role assignment at scope: $($assignment.Scope)"
-        try {
-            Remove-AzRoleAssignment `
-              -ObjectId $assignment.ObjectId `
-              -Scope $assignment.Scope `
-              -RoleDefinitionName $assignment.RoleDefinitionName `
-              -Verbose
+      echo "Listando atribuições de função do SPN..."
+      az account show
 
-            Write-Output "Removed successfully."
-        } catch {
-            Write-Error "Failed to remove role assignment: $_"
-        }
-    }
-}
+      # Obtém o objeto do SPN (identificado automaticamente pela service connection)
+      CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || az ad sp show --id $(az account show --query user.name -o tsv) --query objectId -o tsv)
+
+      echo "SPN Object ID: $CURRENT_OBJECT_ID"
+
+      echo "Buscando roles atribuídas diretamente..."
+      az role assignment list --assignee "$CURRENT_OBJECT_ID" --all --query "[?contains(scope, '$TARGET_SCOPE')]" -o table
+
+      echo "Verificando se SPN possui permissão para remover RBAC..."
+      az role assignment list --assignee "$CURRENT_OBJECT_ID" --all --query "[?contains(roleDefinitionName, 'Owner') || contains(roleDefinitionName, 'User Access Administrator') || contains(roleDefinitionName, 'Contributor')]" -o table
+
+      echo "✅ Se você ver 'Owner' ou 'User Access Administrator' no escopo desejado, o SPN deve conseguir remover RBAC."
