@@ -1,5 +1,32 @@
-Remove-AzRoleAssignment `
-  -ObjectId $assignment.ObjectId `
-  -Scope $assignment.Scope `
-  -RoleDefinitionName $assignment.RoleDefinitionName `
-  -Verbose
+Starting: Remove RBAC Role
+==============================================================================
+Task         : Azure PowerShell
+Description  : Run a PowerShell script within an Azure environment
+Version      : 5.257.0
+Author       : Microsoft Corporation
+Help         : https://aka.ms/azurepowershelltroubleshooting
+==============================================================================
+AZUREPS_HOST_ENVIRONMENT: ADO/AzurePowerShell@v5_Linux_Hosted Agent_Remove Role Assignment_13041407__
+Generating script.
+/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command . '/home/vsts/work/_temp/c1dc53b8-8b95-4310-9c7e-ba91d4b4c530.ps1'
+File saved!
+Import-Module -Name /usr/share/az_12.1.0/Az.Accounts/5.1.0/Az.Accounts.psd1 -Global
+Clear-AzContext -Scope Process
+Clear-AzContext -Scope CurrentUser -Force -ErrorAction SilentlyContinue
+Connect-AzAccount -ServicePrincipal -Tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d -Credential System.Management.Automation.PSCredential -Environment AzureCloud @processScope
+ Set-AzContext -SubscriptionId 1e59c1b9-0d0b-4410-91e5-31b1a7a4929c -TenantId 3a15904d-3fd9-4256-a753-beb05cdf0c6d
+WARNING: You're using Az version 12.1.0. The latest version of Az is 14.2.0. Upgrade your Az modules using the following commands:
+  Update-PSResource Az -WhatIf    -- Simulate updating your Az modules.
+  Update-PSResource Az            -- Update your Az modules.
+There will be breaking changes from 12.1.0 to 14.2.0. Open https://go.microsoft.com/fwlink/?linkid=2241373 and check the details.
+Removing RoleAssignmentId: 
+VERBOSE: Performing the operation "Removing role assignment for AD object '78a14cb0-a4a8-46a3-9476-baccae4fb9fe' on scope '/subscriptions/1e59c1b9-0d0b-4410-91e5-31b1a7a4929c/resourcegroups/dqe3-p-rg/providers/Microsoft.DataFactory/factories/dqe3-p-01-adf' with role definition 'Data Factory Contributor' " on target "78a14cb0-a4a8-46a3-9476-baccae4fb9fe".
+Write-Error: Failed to remove role assignment: Operation returned an invalid status code 'Conflict'
+
+##[error]PowerShell exited with code '1'.
+/usr/bin/pwsh -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command . '/home/vsts/work/_tasks/AzurePowerShell_72a1931b-effb-4d2e-8fd8-f8472a07cb62/5.257.0/RemoveAzContext.ps1'
+Disconnect-AzAccount -Scope CurrentUser -ErrorAction Stop
+Disconnect-AzAccount -Scope Process -ErrorAction Stop
+Clear-AzContext -Scope Process -ErrorAction Stop
+
+Finishing: Remove RBAC Role
