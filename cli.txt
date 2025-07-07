@@ -1,27 +1,42 @@
-- task: AzureCLI@2
-  displayName: "Check SPN Role Assignment Permissions"
-  inputs:
-    azureSubscription: '<your-service-connection-name>'
-    scriptType: bash
-    scriptLocation: inlineScript
-    inlineScript: |
-      echo "Verificando permissões do SPN..."
-      
-      TARGET_SCOPE="${{ parameters.Scope }}"
-      echo "Scope alvo: $TARGET_SCOPE"
+Starting: Check SPN Role Assignment Permissions
+==============================================================================
+Task         : Azure CLI
+Description  : Run Azure CLI commands against an Azure subscription in a PowerShell Core/Shell script when running on Linux agent or PowerShell/PowerShell Core/Batch script when running on Windows agent.
+Version      : 2.256.0
+Author       : Microsoft Corporation
+Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/deploy/azure-cli
+==============================================================================
+/usr/bin/az --version
+azure-cli                         2.74.0 *
 
-      echo "Listando atribuições de função do SPN..."
-      az account show
+core                              2.74.0 *
+telemetry                          1.1.0
 
-      # Obtém o objeto do SPN (identificado automaticamente pela service connection)
-      CURRENT_OBJECT_ID=$(az ad signed-in-user show --query objectId -o tsv 2>/dev/null || az ad sp show --id $(az account show --query user.name -o tsv) --query objectId -o tsv)
+Extensions:
+azure-devops                       1.0.1
 
-      echo "SPN Object ID: $CURRENT_OBJECT_ID"
+Dependencies:
+msal                              1.32.3
+azure-mgmt-resource               23.3.0
 
-      echo "Buscando roles atribuídas diretamente..."
-      az role assignment list --assignee "$CURRENT_OBJECT_ID" --all --query "[?contains(scope, '$TARGET_SCOPE')]" -o table
+Python location '/opt/az/bin/python3'
+Config directory '/home/vsts/.azure'
+Extensions directory '/opt/az/azcliextensions'
 
-      echo "Verificando se SPN possui permissão para remover RBAC..."
-      az role assignment list --assignee "$CURRENT_OBJECT_ID" --all --query "[?contains(roleDefinitionName, 'Owner') || contains(roleDefinitionName, 'User Access Administrator') || contains(roleDefinitionName, 'Contributor')]" -o table
+Python (Linux) 3.12.10 (main, May 27 2025, 09:12:37) [GCC 13.3.0]
 
-      echo "✅ Se você ver 'Owner' ou 'User Access Administrator' no escopo desejado, o SPN deve conseguir remover RBAC."
+Legal docs and information: aka.ms/AzureCliLegal
+
+
+WARNING: You have 2 update(s) available. Consider updating your CLI installation with 'az upgrade'
+Setting AZURE_CONFIG_DIR env variable to: /home/vsts/work/_temp/.azclitask
+Setting active cloud to: AzureCloud
+/usr/bin/az cloud set -n AzureCloud
+/opt/az/azcliextensions/azure-devops/azext_devops/dev/__init__.py:5: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+/usr/bin/az login --service-principal -u *** --password=*** --tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d --allow-no-subscriptions
+[
+  {
+    "cloudName": "AzureCloud",
+    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "id": "b658ffad-30c7-4be6-881c-e3dc1f6520af",
