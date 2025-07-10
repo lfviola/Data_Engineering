@@ -1,165 +1,40 @@
-parameters:
+- task: AzureCLI@2
+  name: ManageLocks
+  enabled: true
+  displayName: "Manage Locks and RBAC"
+  inputs:
+    azureSubscription: '${{ variables.ResourceGroupName }}'
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      # Step 1: Define variables from scope
+      SCOPE="${{ parameters.Scope }}"
+      SUBSCRIPTION_ID=$(echo $SCOPE | cut -d'/' -f3)
 
-  - name: targetEnvironment
-    displayName: Target Environment
-    type: string
-    default: development
-    values:
-      - development
-      - test
-      - acceptance
-      - production
+      echo "Scope: $SCOPE"
+      echo "Subscription ID: $SUBSCRIPTION_ID"
 
-  - name: ObjectId 
-    displayName: "Object ID to remove access (Format: xxxx-xxx-xxx-xxx-xxx)"
-    type: string
+      # Step 2: List locks explicitly from the scope
+      locks=$(az lock list --scope "$SCOPE" --query "[].{Name:name,Level:level,Id:id}" -o json)
 
-  - name: Scope
-    displayName: "Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)"
-    type: string
+      echo "##vso[task.setvariable variable=locks;isOutput=true]$locks"
+      echo "Locks JSON: $locks"
 
-  - name: RoleDefinitionName
-    displayName: Name of the Role to be removed (Reader, Contributor, etc)
-    type: string
-
-
-variables:
-  - group: Abnamro.Coesd.VariableGroup.GlobalVars 
-  - template: ../parameter/global.variables.yml
-  - template: ../parameter/${{parameters.targetEnvironment}}.variables.yml  
-
-trigger: none
-
-pr: none
-
-stages:
-  # create identities(Service principal and UAMI)
-  - stage: RemoveRBACStage
-    displayName: Remove RBAC Role
-
-    jobs:
-
-    - job: RemoveRBAC
-      displayName: Remove RBAC Role
-
-      steps:
-
-      - task: AzureCLI@2
-        name: ManageLocks
-        enabled: true
-        displayName: "Manage Locks and RBAC"
-        inputs:
-          azureSubscription: '${{ variables.ResourceGroupName }}'
-          scriptType: 'bash'
-          scriptLocation: 'inlineScript'
-          inlineScript: |
-            # Step 1: Define variables from scope
-            SCOPE="${{ parameters.Scope }}"
-            SUBSCRIPTION_ID=$(echo $SCOPE | cut -d'/' -f3)
-            RESOURCE_NAME=$(echo $SCOPE | awk -F'/' '{print $(NF)}')
-
-            echo "Subscription ID: $SUBSCRIPTION_ID"
-            echo "Resource Name: $RESOURCE_NAME"
-
-            # Run az lock list
-            locks=$(az lock list --subscription $SUBSCRIPTION_ID --query "[?contains(id, '$RESOURCE_NAME')].{Name:name,Level:level,Id:id}" -o json)
-
-            # Set the 'locks' variable in Azure DevOps
-            echo "##vso[task.setvariable variable=locks;isOutput=true]$locks"
-            echo "Locks JSON: $locks"
-            echo "##vso[task.setvariable variable=locks;isOutput=true]$locks"
-            
-            # Step 3: Check and remove locks
-            if [ -z "$locks" ]; then
-                echo "No locks found for resource '$RESOURCE_NAME'."
-            else
-                for row in $(echo "${locks}" | jq -r '.[] | @base64'); do
-                    _jq() {
-                      echo ${row} | base64 --decode | jq -r ${1}
-                    }
-
-                    LOCK_NAME=$(_jq '.Name')
-                    LOCK_LEVEL=$(_jq '.Level')
-                    LOCK_ID=$(_jq '.Id')
-
-                    echo "Removing lock: $LOCK_NAME at $LOCK_ID"
-                    az lock delete --ids $LOCK_ID
-
-                    echo "Lock '$LOCK_NAME' removed."
-                done
-            fi
-
-      - task: Bash@3
-        displayName: "Echo Locks Variable"
-        inputs:
-          targetType: 'inline'
-          script: |
-            echo "Locks variable from previous task:"
-            echo $(locks)
-
-      - task: AzurePowerShell@5
-        name: RemoveRBACRole
-        enabled: true
-        displayName: "Remove RBAC Role"
-        inputs:
-          azurePowerShellVersion: LatestVersion
-          azureSubscription: '${{ variables.ResourceGroupName }}'
-          ScriptType: InlineScript
-          Inline: |
-              $ErrorActionPreference = "Stop"
-
-              $ObjectId = "${{ parameters.ObjectId }}"
-              $Scope = "${{ parameters.Scope }}"
-              $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
-
-              try {
-                  $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -ErrorAction Stop | Where-Object {
-                      $_.RoleDefinitionName -eq $RoleDefinitionName
-                  }
-
-                  if (-not $roleAssignments) {
-                      Write-Output "No matching role assignments found directly at the specified scope."
-                  } else {
-                      foreach ($assignment in $roleAssignments) {
-                          Write-Output "Attempting to remove role assignment at scope: $($assignment.Scope)"
-                          try {
-                              Remove-AzRoleAssignment `
-                                -ObjectId $assignment.ObjectId `
-                                -Scope $assignment.Scope `
-                                -RoleDefinitionName $assignment.RoleDefinitionName `
-                                -Verbose -ErrorAction Stop
-
-                              Write-Output "Removed successfully."
-                          } catch {
-                              Write-Error "Failed to remove role assignment: $_"
-                          }
-                      }
-                  }
-              } catch {
-                  Write-Error "Error fetching role assignments or permissions issue: $_"
+      # Step 3: Remove each lock
+      if [ "$(echo "$locks" | jq length)" -eq 0 ]; then
+          echo "No locks found at scope $SCOPE."
+      else
+          for row in $(echo "${locks}" | jq -r '.[] | @base64'); do
+              _jq() {
+                  echo "${row}" | base64 --decode | jq -r "$1"
               }
 
-      - task: AzureCLI@2
-        enabled: true
-        displayName: "Restore Locks"
-        inputs:
-          azureSubscription: '${{ variables.ResourceGroupName }}'
-          scriptType: 'bash'
-          scriptLocation: 'inlineScript'
-          inlineScript: |
-            # Restore locks
-            echo "lock variable: "$(spnId)
-            # for row in $(echo $(spnId) | jq -r '.[] | @base64'); do
-            #     _jq() {
-            #       echo ${row} | base64 --decode | jq -r ${1}
-            #     }
+              LOCK_NAME=$(_jq '.Name')
+              LOCK_LEVEL=$(_jq '.Level')
+              LOCK_ID=$(_jq '.Id')
 
-            #     LOCK_NAME=$(_jq '.Name')
-            #     LOCK_LEVEL=$(_jq '.Level')
-            #     LOCK_ID=$(_jq '.Id')
-
-            #     echo "Restoring lock: $LOCK_NAME at $LOCK_ID"
-            #     az lock create --name "$LOCK_NAME" --lock-type "$LOCK_LEVEL" --ids "$LOCK_ID"
-
-            #     echo "Lock '$LOCK_NAME' restored."
-            # done
+              echo "Removing lock: $LOCK_NAME at $LOCK_ID"
+              az lock delete --ids "$LOCK_ID"
+              echo "Lock '$LOCK_NAME' removed."
+          done
+      fi
