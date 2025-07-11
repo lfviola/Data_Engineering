@@ -1,33 +1,62 @@
-SCOPE="/subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf"
+      - task: AzureCLI@2
+        name: ManageLocks
+        enabled: true
+        displayName: "Manage Locks and RBAC"
+        inputs:
+          azureSubscription: '${{ variables.ResourceGroupName }}'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            # Step 1: Define variables from scope
+            SCOPE="${{ parameters.Scope }}"
+            SUBSCRIPTION_ID=$(echo $SCOPE | cut -d'/' -f3)
 
-SUBSCRIPTION_ID=$(echo "$SCOPE" | cut -d'/' -f3)
-RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="resourceGroups") print $(i+1)}')
-RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+2)}')
-RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
-NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+1)}')
+            echo "Scope: $SCOPE"
+            echo "Subscription ID: $SUBSCRIPTION_ID"
 
-echo "Scope: $SCOPE"
-echo "Subscription ID: $SUBSCRIPTION_ID"
-echo "RG: $RESOURCE_GROUP"
-echo "Type: $RESOURCE_TYPE"
-echo "Name: $RESOURCE_NAME"
-echo "Namespace: $NAMESPACE"
+            # Step 2: List locks explicitly from the scope
+            SUBSCRIPTION_ID=$(echo "$SCOPE" | cut -d'/' -f3)
+            RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="resourceGroups") print $(i+1)}')
+            RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+2)}')
+            RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
+            NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+1)}')
 
-az account set --subscription "$SUBSCRIPTION_ID"
+            echo "Scope: $SCOPE"
+            echo "Subscription ID: $SUBSCRIPTION_ID"
+            echo "RG: $RESOURCE_GROUP"
+            echo "Type: $RESOURCE_TYPE"
+            echo "Name: $RESOURCE_NAME"
+            echo "Namespace: $NAMESPACE"
 
-locks=$(az lock list \
-  --resource-group "$RESOURCE_GROUP" \
-  --namespace "$NAMESPACE" \
-  --resource-type "$RESOURCE_TYPE" \
-  --resource-name "$RESOURCE_NAME" \
-  -o json)
+            az account set --subscription "$SUBSCRIPTION_ID"
 
-echo "Locks JSON: $locks"
+            locks=$(az lock list \
+              --resource-group "$RESOURCE_GROUP" \
+              --namespace "$NAMESPACE" \
+              --resource-type "$RESOURCE_TYPE" \
+              --resource-name "$RESOURCE_NAME" \
+              -o json)
 
-# Optional: check if array is empty before processing
-if [ "$(echo "$locks" | jq length)" -eq 0 ]; then
-    echo "No locks found."
-else
-    echo "Locks found:"
-    echo "$locks" | jq .
-fi
+            echo "Locks JSON: $locks"
+
+            echo "##vso[task.setvariable variable=locks;isOutput=true]$locks"
+            echo "Locks JSON: $locks"
+
+            # Step 3: Remove each lock
+            if [ "$(echo "$locks" | jq length)" -eq 0 ]; then
+                echo "No locks found at scope $SCOPE."
+            else
+                for row in $(echo "${locks}" | jq -r '.[] | @base64'); do
+                    _jq() {
+                        echo "${row}" | base64 --decode | jq -r "$1"
+                    }
+
+                    LOCK_NAME=$(_jq '.Name')
+                    LOCK_LEVEL=$(_jq '.Level')
+                    LOCK_ID=$(_jq '.Id')
+
+                    echo "Removing lock: $LOCK_NAME at $LOCK_ID"
+                    az lock delete --ids "$LOCK_ID"
+                    echo "Lock '$LOCK_NAME' removed."
+                done
+            fi
