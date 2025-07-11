@@ -97,4 +97,95 @@ stages:
           done
 
     - task: AzurePowerShell@5
-      na
+      name: RemoveRBACRole
+      displayName: "Remove RBAC Role"
+      inputs:
+        azurePowerShellVersion: LatestVersion
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        ScriptType: InlineScript
+        Inline: |
+          $ErrorActionPreference = "Stop"
+
+          $ObjectId = "${{ parameters.ObjectId }}"
+          $Scope = "${{ parameters.Scope }}"
+          $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
+
+          try {
+              $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -ErrorAction Stop | Where-Object {
+                  $_.RoleDefinitionName -eq $RoleDefinitionName
+              }
+
+              if (-not $roleAssignments) {
+                  Write-Output "No matching role assignments found directly at the specified scope."
+              } else {
+                  foreach ($assignment in $roleAssignments) {
+                      Write-Output "Attempting to remove role assignment at scope: $($assignment.Scope)"
+                      try {
+                          Remove-AzRoleAssignment `
+                            -ObjectId $assignment.ObjectId `
+                            -Scope $assignment.Scope `
+                            -RoleDefinitionName $assignment.RoleDefinitionName `
+                            -Verbose -ErrorAction Stop
+
+                          Write-Output "Removed successfully."
+                      } catch {
+                          Write-Error "Failed to remove role assignment: $_"
+                      }
+                  }
+              }
+          } catch {
+              Write-Error "Error fetching role assignments or permissions issue: $_"
+          }
+
+  # --------------------------------------
+  # Job 2: Restore Locks
+  # --------------------------------------
+  - job: RestoreLocksJob
+    displayName: Restore Locks
+    dependsOn: RemoveRBAC
+    variables:
+      LOCKS_JSON: $[ dependencies.RemoveRBAC.outputs['ManageLocks.locks'] ]
+    steps:
+
+    - task: Bash@3
+      displayName: "Echo Locks Variable"
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "Locks from previous job:"
+          echo "$LOCKS_JSON"
+
+    - task: AzureCLI@2
+      name: RestoreLocks
+      displayName: "Restore Locks"
+      inputs:
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "Restoring locks..."
+          echo "Locks: $LOCKS_JSON"
+
+          if [ -z "$LOCKS_JSON" ]; then
+            echo "No locks to restore."
+            exit 0
+          fi
+
+          for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r "$1"
+            }
+
+            LOCK_NAME=$(_jq '.Name')
+            LOCK_LEVEL=$(_jq '.Level')
+            LOCK_ID=$(_jq '.Id')
+            LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
+
+            echo "Restoring lock: $LOCK_NAME at $LOCK_SCOPE"
+            az lock create \
+              --name "$LOCK_NAME" \
+              --lock-type "$LOCK_LEVEL" \
+              --scope "$LOCK_SCOPE"
+
+            echo "Lock '$LOCK_NAME' restored."
+          done
