@@ -1,3 +1,49 @@
+parameters:
+
+  - name: targetEnvironment
+    displayName: Target Environment
+    type: string
+    default: development
+    values:
+      - development
+      - test
+      - acceptance
+      - production
+
+  - name: ObjectId 
+    displayName: "Object ID to remove access (Format: xxxx-xxx-xxx-xxx-xxx)"
+    type: string
+
+  - name: Scope
+    displayName: "Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)"
+    type: string
+
+  - name: RoleDefinitionName
+    displayName: Name of the Role to be removed (Reader, Contributor, etc)
+    type: string
+
+
+variables:
+  - group: Abnamro.Coesd.VariableGroup.GlobalVars 
+  - template: ../parameter/global.variables.yml
+  - template: ../parameter/${{parameters.targetEnvironment}}.variables.yml  
+
+trigger: none
+
+pr: none
+
+stages:
+  # create identities(Service principal and UAMI)
+  - stage: RemoveRBACStage
+    displayName: Remove RBAC Role
+
+    jobs:
+
+    - job: RemoveRBAC
+      displayName: Remove RBAC Role
+
+      steps:
+
       - task: AzureCLI@2
         name: ManageLocks
         enabled: true
@@ -60,3 +106,78 @@
                     echo "Lock '$LOCK_NAME' removed."
                 done
             fi
+
+
+      - task: Bash@3
+        displayName: "Echo Locks Variable"
+        inputs:
+          targetType: 'inline'
+          script: |
+            echo "Locks variable from previous task:" $(ManageLocks.locks)
+
+      - task: AzurePowerShell@5
+        name: RemoveRBACRole
+        enabled: true
+        displayName: "Remove RBAC Role"
+        inputs:
+          azurePowerShellVersion: LatestVersion
+          azureSubscription: '${{ variables.ResourceGroupName }}'
+          ScriptType: InlineScript
+          Inline: |
+              $ErrorActionPreference = "Stop"
+
+              $ObjectId = "${{ parameters.ObjectId }}"
+              $Scope = "${{ parameters.Scope }}"
+              $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
+
+              try {
+                  $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -ErrorAction Stop | Where-Object {
+                      $_.RoleDefinitionName -eq $RoleDefinitionName
+                  }
+
+                  if (-not $roleAssignments) {
+                      Write-Output "No matching role assignments found directly at the specified scope."
+                  } else {
+                      foreach ($assignment in $roleAssignments) {
+                          Write-Output "Attempting to remove role assignment at scope: $($assignment.Scope)"
+                          try {
+                              Remove-AzRoleAssignment `
+                                -ObjectId $assignment.ObjectId `
+                                -Scope $assignment.Scope `
+                                -RoleDefinitionName $assignment.RoleDefinitionName `
+                                -Verbose -ErrorAction Stop
+
+                              Write-Output "Removed successfully."
+                          } catch {
+                              Write-Error "Failed to remove role assignment: $_"
+                          }
+                      }
+                  }
+              } catch {
+                  Write-Error "Error fetching role assignments or permissions issue: $_"
+              }
+
+      - task: AzureCLI@2
+        enabled: true
+        displayName: "Restore Locks"
+        inputs:
+          azureSubscription: '${{ variables.ResourceGroupName }}'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            # Restore locks
+            echo "lock variable: "$(ManageLocks.locks)
+            for row in $(echo $(ManageLocks.locks) | jq -r '.[] | @base64'); do
+                _jq() {
+                  echo ${row} | base64 --decode | jq -r ${1}
+                }
+
+                LOCK_NAME=$(_jq '.Name')
+                LOCK_LEVEL=$(_jq '.Level')
+                LOCK_ID=$(_jq '.Id')
+
+                echo "Restoring lock: $LOCK_NAME at $LOCK_ID"
+                az lock create --name "$LOCK_NAME" --lock-type "$LOCK_LEVEL" --ids "$LOCK_ID"
+
+                echo "Lock '$LOCK_NAME' restored."
+            done
