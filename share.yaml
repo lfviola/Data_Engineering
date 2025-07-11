@@ -1,40 +1,18 @@
-- task: AzureCLI@2
-  name: ManageLocks
-  enabled: true
-  displayName: "Manage Locks and RBAC"
-  inputs:
-    azureSubscription: '${{ variables.ResourceGroupName }}'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      # Step 1: Define variables from scope
-      SCOPE="${{ parameters.Scope }}"
-      SUBSCRIPTION_ID=$(echo $SCOPE | cut -d'/' -f3)
+SCOPE="${{ parameters.Scope }}"
 
-      echo "Scope: $SCOPE"
-      echo "Subscription ID: $SUBSCRIPTION_ID"
+RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="resourceGroups") print $(i+1)}')
+RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+3)}')
+RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
+NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+1)}')
 
-      # Step 2: List locks explicitly from the scope
-      locks=$(az lock list --scope "$SCOPE" --query "[].{Name:name,Level:level,Id:id}" -o json)
+echo "RG: $RESOURCE_GROUP"
+echo "Type: $RESOURCE_TYPE"
+echo "Name: $RESOURCE_NAME"
+echo "Namespace: $NAMESPACE"
 
-      echo "##vso[task.setvariable variable=locks;isOutput=true]$locks"
-      echo "Locks JSON: $locks"
-
-      # Step 3: Remove each lock
-      if [ "$(echo "$locks" | jq length)" -eq 0 ]; then
-          echo "No locks found at scope $SCOPE."
-      else
-          for row in $(echo "${locks}" | jq -r '.[] | @base64'); do
-              _jq() {
-                  echo "${row}" | base64 --decode | jq -r "$1"
-              }
-
-              LOCK_NAME=$(_jq '.Name')
-              LOCK_LEVEL=$(_jq '.Level')
-              LOCK_ID=$(_jq '.Id')
-
-              echo "Removing lock: $LOCK_NAME at $LOCK_ID"
-              az lock delete --ids "$LOCK_ID"
-              echo "Lock '$LOCK_NAME' removed."
-          done
-      fi
+locks=$(az lock list \
+  --resource-group "$RESOURCE_GROUP" \
+  --resource-type "$RESOURCE_TYPE" \
+  --namespace "$NAMESPACE" \
+  --resource-name "$RESOURCE_NAME" \
+  -o json)
