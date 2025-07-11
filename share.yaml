@@ -1,18 +1,15 @@
-SCOPE="${{ parameters.Scope }}"
+az lock list --resource-group "dqe3-d-rg" --resource-type "factories" --namespace "Microsoft.DataFactory" --resource-name "$dqe3-d-01-adf"
 
-RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="resourceGroups") print $(i+1)}')
-RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+3)}')
-RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
-NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+1)}')
+/subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf
 
-echo "RG: $RESOURCE_GROUP"
-echo "Type: $RESOURCE_TYPE"
-echo "Name: $RESOURCE_NAME"
-echo "Namespace: $NAMESPACE"
-
-locks=$(az lock list \
-  --resource-group "$RESOURCE_GROUP" \
-  --resource-type "$RESOURCE_TYPE" \
-  --namespace "$NAMESPACE" \
-  --resource-name "$RESOURCE_NAME" \
-  -o json)
+Scope: /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf
+Subscription ID: eb940d7e-b120-4388-bbe7-4bee414e415b
+RG: dqe3-d-rg
+Type: dqe3-d-01-adf
+Name: dqe3-d-01-adf
+Namespace: Microsoft.DataFactory
+ERROR: (InvalidResourceType) The resource type could not be found in the namespace 'Microsoft.DataFactory' for api version '2016-09-01'.
+Code: InvalidResourceType
+Message: The resource type could not be found in the namespace 'Microsoft.DataFactory' for api version '2016-09-01'.
+Locks JSON: 
+/home/vsts/work/_temp/azureclitaskscript1752226501556.sh: line 31: [: : integer expression expected
