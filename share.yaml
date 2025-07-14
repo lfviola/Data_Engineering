@@ -1,61 +1,7 @@
-- job: RestoreLocksJob
-  displayName: Restore Locks
-  dependsOn: RemoveRBAC
-  steps:
-
-    - task: DownloadBuildArtifacts@0
-      displayName: "Download Locks Artifact"
-      inputs:
-        artifactName: locks
-        downloadPath: $(Pipeline.Workspace)/locks_artifact
-
-    - task: AzureCLI@2
-      displayName: "Restore Locks"
-      inputs:
-        azureSubscription: '${{ variables.ResourceGroupName }}'
-        scriptType: 'bash'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          echo "🔁 Starting lock restore step..."
-
-          LOCK_FILE="$(Pipeline.Workspace)/locks_artifact/locks.json"
-
-          echo "🔍 Looking for lock file: $LOCK_FILE"
-          if [ ! -f "$LOCK_FILE" ]; then
-            echo "❌ Lock file not found!"
-            exit 1
-          fi
-
-          echo "📦 Reading contents of $LOCK_FILE:"
-          cat "$LOCK_FILE"
-
-          LOCKS_JSON=$(cat "$LOCK_FILE")
-
-          echo "$LOCKS_JSON" | jq '.' || {
-            echo "❌ Invalid JSON in lock file"
-            exit 1
-          }
-
-          if [ "$(echo "$LOCKS_JSON" | jq 'length')" -eq 0 ]; then
-            echo "✅ No locks to restore."
-            exit 0
-          fi
-
-          for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
-            _jq() {
-              echo "${row}" | base64 --decode | jq -r "$1"
-            }
-
-            LOCK_NAME=$(_jq '.name')
-            LOCK_LEVEL=$(_jq '.level')
-            LOCK_ID=$(_jq '.id')
-            LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
-
-            echo "🔐 Restoring lock: $LOCK_NAME ($LOCK_LEVEL) at $LOCK_SCOPE"
-            az lock create \
-              --name "$LOCK_NAME" \
-              --lock-type "$LOCK_LEVEL" \
-              --scope "$LOCK_SCOPE"
-
-            echo "✅ Lock '$LOCK_NAME' restored."
-          done
+- task: Bash@3
+  displayName: "🔍 Debug: Locate locks.json"
+  inputs:
+    targetType: 'inline'
+    script: |
+      echo "🔍 Searching for locks.json under $(Pipeline.Workspace)/locks_artifact..."
+      find $(Pipeline.Workspace)/locks_artifact -type f -name "locks.json"
