@@ -1,44 +1,39 @@
-- task: DownloadBuildArtifacts@0
-  displayName: "Download Locks Artifact"
-  inputs:
-    artifactName: locks
-    downloadPath: $(Pipeline.Workspace)/locks_artifact
-
-- task: AzureCLI@2
-  displayName: "Restore Locks"
-  inputs:
-    azureSubscription: '${{ variables.ResourceGroupName }}'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      echo "🔁 Reading lock data from artifact..."
-      LOCKS_JSON=$(cat "$(Pipeline.Workspace)/locks_artifact/locks.json")
-
-      echo "$LOCKS_JSON" | jq '.' || {
-        echo "❌ Invalid JSON in locks.json"
-        exit 1
+    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "id": "eb940d7e-b120-4388-bbe7-4bee414e415b",
+    "isDefault": false,
+    "managedByTenants": [
+      {
+        "tenantId": "2f4a9838-26b7-47ee-be60-ccc1fdec5953"
       }
+    ],
+    "name": "dqe-d-lz",
+    "state": "Enabled",
+    "tenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "user": {
+      "name": "***",
+      "type": "servicePrincipal"
+    }
+  },
+  {
+    "cloudName": "AzureCloud",
+    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "id": "15d4702f-a4cf-4e5b-9ee3-38f46ff79e69",
+    "isDefault": false,
+    "managedByTenants": [],
+    "name": "ahsm-d-lz",
+    "state": "Enabled",
+    "tenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "user": {
+      "name": "***",
+      "type": "servicePrincipal"
+    }
+  }
+]
+/usr/bin/az account set --subscription eb940d7e-b120-4388-bbe7-4bee414e415b
+/usr/bin/bash /home/vsts/work/_temp/azureclitaskscript1752483688180.sh
+🔁 Reading lock data from artifact...
+cat: /home/vsts/work/1/locks_artifact/locks.json: No such file or directory
+/home/vsts/work/_temp/azureclitaskscript1752483688180.sh: line 9: [: : integer expression expected
 
-      if [ "$(echo "$LOCKS_JSON" | jq 'length')" -eq 0 ]; then
-        echo "✅ No locks to restore."
-        exit 0
-      fi
-
-      for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
-        _jq() {
-          echo "${row}" | base64 --decode | jq -r "$1"
-        }
-
-        LOCK_NAME=$(_jq '.name')
-        LOCK_LEVEL=$(_jq '.level')
-        LOCK_ID=$(_jq '.id')
-        LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
-
-        echo "Restoring lock: $LOCK_NAME at $LOCK_SCOPE"
-        az lock create \
-          --name "$LOCK_NAME" \
-          --lock-type "$LOCK_LEVEL" \
-          --scope "$LOCK_SCOPE"
-
-        echo "✅ Lock '$LOCK_NAME' restored."
-      done
+/usr/bin/az account clear
+Finishing: Restore Locks
