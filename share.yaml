@@ -1,41 +1,194 @@
-- task: DownloadBuildArtifacts@0
-  inputs:
-    artifactName: locks
-    downloadPath: $(Pipeline.Workspace)
+parameters:
+  - name: targetEnvironment
+    displayName: Target Environment
+    type: string
+    default: development
+    values:
+      - development
+      - test
+      - acceptance
+      - production
 
-- task: AzureCLI@2
-  displayName: "Restore Locks"
-  inputs:
-    azureSubscription: '${{ variables.ResourceGroupName }}'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      echo "🔁 Reading lock data from artifact..."
-      LOCKS_JSON=$(cat "$(Pipeline.Workspace)/locks/locks.json")
+  - name: ObjectId 
+    displayName: "Object ID to remove access (Format: xxxx-xxx-xxx-xxx-xxx)"
+    type: string
 
-      echo "$LOCKS_JSON" | jq '.' || {
-        echo "❌ Invalid JSON in locks.json"
-        exit 1
-      }
+  - name: Scope
+    displayName: "Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)"
+    type: string
 
-      if [ "$(echo "$LOCKS_JSON" | jq 'length')" -eq 0 ]; then
-        echo "✅ No locks to restore."
-        exit 0
-      fi
+  - name: RoleDefinitionName
+    displayName: Name of the Role to be removed (Reader, Contributor, etc)
+    type: string
 
-      for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
-        _jq() {
-          echo "${row}" | base64 --decode | jq -r "$1"
-        }
+variables:
+  - group: Abnamro.Coesd.VariableGroup.GlobalVars 
+  - template: ../parameter/global.variables.yml
+  - template: ../parameter/${{ parameters.targetEnvironment }}.variables.yml  
 
-        LOCK_NAME=$(_jq '.name')
-        LOCK_LEVEL=$(_jq '.level')
-        LOCK_ID=$(_jq '.id')
-        LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
+trigger: none
+pr: none
 
-        echo "Restoring lock: $LOCK_NAME at $LOCK_SCOPE"
-        az lock create \
-          --name "$LOCK_NAME" \
-          --lock-type "$LOCK_LEVEL" \
-          --scope "$LOCK_SCOPE"
-      done
+stages:
+- stage: RemoveRBACStage
+  displayName: Remove RBAC Role
+  jobs:
+
+  # ----------------------------
+  # Job 1: Remove Locks + RBAC
+  # ----------------------------
+  - job: RemoveRBAC
+    displayName: Remove RBAC Role
+
+    steps:
+    - task: AzureCLI@2
+      name: ManageLocks
+      displayName: "Manage Locks and Remove"
+      inputs:
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          SCOPE="${{ parameters.Scope }}"
+          SUBSCRIPTION_ID=$(echo "$SCOPE" | cut -d'/' -f3)
+          RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1;i<=NF;i++) if ($i=="resourceGroups") print $(i+1)}')
+          RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1;i<=NF;i++) if ($i=="providers") print $(i+2)}')
+          RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
+          NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1;i<=NF;i++) if ($i=="providers") print $(i+1)}')
+
+          echo "Scope: $SCOPE"
+          echo "Subscription ID: $SUBSCRIPTION_ID"
+          echo "RG: $RESOURCE_GROUP"
+          echo "Type: $RESOURCE_TYPE"
+          echo "Name: $RESOURCE_NAME"
+          echo "Namespace: $NAMESPACE"
+
+          az account set --subscription "$SUBSCRIPTION_ID"
+
+          locks=$(az lock list \
+            --resource-group "$RESOURCE_GROUP" \
+            --namespace "$NAMESPACE" \
+            --resource-type "$RESOURCE_TYPE" \
+            --resource-name "$RESOURCE_NAME" \
+            -o json | jq -c .)  # compress JSON
+
+          echo "$locks" > locks.json
+          echo "🔒 Locks JSON written to locks.json"
+
+          if [ "$(echo "$locks" | jq 'length')" -eq 0 ]; then
+            echo "No locks found at scope $SCOPE."
+            exit 0
+          fi
+
+          for row in $(echo "$locks" | jq -r '.[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r "$1"
+            }
+
+            LOCK_NAME=$(_jq '.name')
+            LOCK_ID=$(_jq '.id')
+
+            echo "Removing lock: $LOCK_NAME at $LOCK_ID"
+            az lock delete --ids "$LOCK_ID"
+            echo "Lock '$LOCK_NAME' removed."
+          done
+
+    - task: PublishBuildArtifacts@1
+      displayName: "Publish Locks Artifact"
+      inputs:
+        PathtoPublish: locks.json
+        ArtifactName: locks
+
+    - task: AzurePowerShell@5
+      name: RemoveRBACRole
+      displayName: "Remove RBAC Role"
+      inputs:
+        azurePowerShellVersion: LatestVersion
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        ScriptType: InlineScript
+        Inline: |
+          $ErrorActionPreference = "Stop"
+
+          $ObjectId = "${{ parameters.ObjectId }}"
+          $Scope = "${{ parameters.Scope }}"
+          $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
+
+          try {
+              $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -ErrorAction Stop | Where-Object {
+                  $_.RoleDefinitionName -eq $RoleDefinitionName
+              }
+
+              if (-not $roleAssignments) {
+                  Write-Output "No matching role assignments found directly at the specified scope."
+              } else {
+                  foreach ($assignment in $roleAssignments) {
+                      Write-Output "Attempting to remove role assignment at scope: $($assignment.Scope)"
+                      try {
+                          Remove-AzRoleAssignment `
+                            -ObjectId $assignment.ObjectId `
+                            -Scope $assignment.Scope `
+                            -RoleDefinitionName $assignment.RoleDefinitionName `
+                            -Verbose -ErrorAction Stop
+
+                          Write-Output "Removed successfully."
+                      } catch {
+                          Write-Error "Failed to remove role assignment: $_"
+                      }
+                  }
+              }
+          } catch {
+              Write-Error "Error fetching role assignments or permissions issue: $_"
+          }
+
+  # ----------------------------
+  # Job 2: Restore Locks
+  # ----------------------------
+  - job: RestoreLocksJob
+    displayName: Restore Locks
+    dependsOn: RemoveRBAC
+    steps:
+
+    - task: DownloadBuildArtifacts@0
+      displayName: "Download Locks Artifact"
+      inputs:
+        artifactName: locks
+        downloadPath: $(Pipeline.Workspace)
+
+    - task: AzureCLI@2
+      displayName: "Restore Locks"
+      inputs:
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "🔁 Reading lock data from artifact..."
+          LOCKS_JSON=$(cat "$(Pipeline.Workspace)/locks/locks.json")
+
+          echo "$LOCKS_JSON" | jq '.' || {
+            echo "❌ Invalid JSON in locks.json"
+            exit 1
+          }
+
+          if [ "$(echo "$LOCKS_JSON" | jq 'length')" -eq 0 ]; then
+            echo "✅ No locks to restore."
+            exit 0
+          fi
+
+          for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r "$1"
+            }
+
+            LOCK_NAME=$(_jq '.name')
+            LOCK_LEVEL=$(_jq '.level')
+            LOCK_ID=$(_jq '.id')
+            LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
+
+            echo "Restoring lock: $LOCK_NAME at $LOCK_SCOPE"
+            az lock create \
+              --name "$LOCK_NAME" \
+              --lock-type "$LOCK_LEVEL" \
+              --scope "$LOCK_SCOPE"
+
+            echo "✅ Lock '$LOCK_NAME' restored."
+          done
