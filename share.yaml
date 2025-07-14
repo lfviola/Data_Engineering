@@ -1,42 +1,61 @@
-Starting: Restore Locks
-==============================================================================
-Task         : Azure CLI
-Description  : Run Azure CLI commands against an Azure subscription in a PowerShell Core/Shell script when running on Linux agent or PowerShell/PowerShell Core/Batch script when running on Windows agent.
-Version      : 2.256.0
-Author       : Microsoft Corporation
-Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/deploy/azure-cli
-==============================================================================
-/usr/bin/az --version
-azure-cli                         2.74.0 *
-WARNING: You have 2 update(s) available. Consider updating your CLI installation with 'az upgrade'
+- job: RestoreLocksJob
+  displayName: Restore Locks
+  dependsOn: RemoveRBAC
+  steps:
 
-core                              2.74.0 *
-telemetry                          1.1.0
+    - task: DownloadBuildArtifacts@0
+      displayName: "Download Locks Artifact"
+      inputs:
+        artifactName: locks
+        downloadPath: $(Pipeline.Workspace)/locks_artifact
 
-Extensions:
-azure-devops                       1.0.2
+    - task: AzureCLI@2
+      displayName: "Restore Locks"
+      inputs:
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          echo "🔁 Starting lock restore step..."
 
-Dependencies:
-msal                              1.32.3
-azure-mgmt-resource               23.3.0
+          LOCK_FILE="$(Pipeline.Workspace)/locks_artifact/locks.json"
 
-Python location '/opt/az/bin/python3'
-Config directory '/home/vsts/.azure'
-Extensions directory '/opt/az/azcliextensions'
+          echo "🔍 Looking for lock file: $LOCK_FILE"
+          if [ ! -f "$LOCK_FILE" ]; then
+            echo "❌ Lock file not found!"
+            exit 1
+          fi
 
-Python (Linux) 3.12.10 (main, May 27 2025, 09:12:37) [GCC 13.3.0]
+          echo "📦 Reading contents of $LOCK_FILE:"
+          cat "$LOCK_FILE"
 
-Legal docs and information: aka.ms/AzureCliLegal
+          LOCKS_JSON=$(cat "$LOCK_FILE")
 
+          echo "$LOCKS_JSON" | jq '.' || {
+            echo "❌ Invalid JSON in lock file"
+            exit 1
+          }
 
-Setting AZURE_CONFIG_DIR env variable to: /home/vsts/work/_temp/.azclitask
-Setting active cloud to: AzureCloud
-/usr/bin/az cloud set -n AzureCloud
-/usr/bin/az login --service-principal -u *** --password=*** --tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d --allow-no-subscriptions
-[
-  {
-    "cloudName": "AzureCloud",
-    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
-    "id": "b658ffad-30c7-4be6-881c-e3dc1f6520af",
-    "isDefault": true,
-    "managedByTenants": [
+          if [ "$(echo "$LOCKS_JSON" | jq 'length')" -eq 0 ]; then
+            echo "✅ No locks to restore."
+            exit 0
+          fi
+
+          for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r "$1"
+            }
+
+            LOCK_NAME=$(_jq '.name')
+            LOCK_LEVEL=$(_jq '.level')
+            LOCK_ID=$(_jq '.id')
+            LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
+
+            echo "🔐 Restoring lock: $LOCK_NAME ($LOCK_LEVEL) at $LOCK_SCOPE"
+            az lock create \
+              --name "$LOCK_NAME" \
+              --lock-type "$LOCK_LEVEL" \
+              --scope "$LOCK_SCOPE"
+
+            echo "✅ Lock '$LOCK_NAME' restored."
+          done
