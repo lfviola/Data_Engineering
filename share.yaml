@@ -156,12 +156,9 @@ stages:
     displayName: Restore Locks
     dependsOn: RemoveRBAC
     variables:
-      SCOPE: $[ dependencies.RemoveRBAC.outputs['SCOPE'] ]
-      SUBSCRIPTION_ID: $[ dependencies.RemoveRBAC.outputs['SUBSCRIPTION_ID'] ]
-      RESOURCE_GROUP: $[ dependencies.RemoveRBAC.outputs['RESOURCE_GROUP'] ]
-      RESOURCE_TYPE: $[ dependencies.RemoveRBAC.outputs['RESOURCE_TYPE'] ]
-      RESOURCE_NAME: $[ dependencies.RemoveRBAC.outputs['RESOURCE_NAME'] ]
-      NAMESPACE: $[ dependencies.RemoveRBAC.outputs['NAMESPACE'] ]
+      RESOURCE_GROUP: $(RESOURCE_GROUP)
+      RESOURCE_TYPE: $(RESOURCE_TYPE)
+      RESOURCE_NAME: $(RESOURCE_NAME)
     steps:
 
       - task: DownloadPipelineArtifact@2
@@ -212,14 +209,14 @@ stages:
               LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
 
               echo "🔐 Restoring lock: $LOCK_NAME ($LOCK_LEVEL) at $LOCK_SCOPE"
-              echo "Resource Group Variable: $(RESOURCE_GROUP)"
+              echo "Resource Group Variable: $RESOURCE_GROUP"
 
               az lock create \
                 --name "$LOCK_NAME" \
-                --resource-group $(RESOURCE_GROUP) \
+                --resource-group $RESOURCE_GROUP \
                 --lock-type "$LOCK_LEVEL" \
-                --resource-type $(RESOURCE_TYPE) \
-                --resource-name $(RESOURCE_NAME)
+                --resource-type $RESOURCE_TYPE \
+                --resource-name $RESOURCE_NAME
 
               if [ $? -ne 0 ]; then
                   echo "Error occurred while creating the lock."
