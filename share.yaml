@@ -1,7 +1,42 @@
-- task: Bash@3
-  displayName: "🔍 Debug: Locate locks.json"
-  inputs:
-    targetType: 'inline'
-    script: |
-      echo "🔍 Searching for locks.json under $(Pipeline.Workspace)/locks_artifact..."
-      find $(Pipeline.Workspace)/locks_artifact -type f -name "locks.json"
+Scope: /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf
+Subscription ID: eb940d7e-b120-4388-bbe7-4bee414e415b
+RG: dqe3-d-rg
+Type: factories
+Name: dqe3-d-01-adf
+Namespace: Microsoft.DataFactory
+🔒 Locks JSON written to out/locks.json
+Removing lock: mylock at /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf/providers/Microsoft.Authorization/locks/mylock
+Lock 'mylock' removed.
+
+Starting: Publish Locks Artifact
+==============================================================================
+Task         : Publish build artifacts
+Description  : Publish build artifacts to Azure Pipelines or a Windows file share
+Version      : 1.247.1
+Author       : Microsoft Corporation
+Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/utility/publish-build-artifacts
+==============================================================================
+Async Command Start: Upload Artifact
+Uploading 1 files
+File upload succeed.
+Upload '/home/vsts/work/1/s/out' to file container: '#/49947596/locks'
+Associated artifact 10201224 with build 13156326
+Async Command End: Upload Artifact
+Finishing: Publish Locks Artifact
+
+Starting: 🔍 Debug: Locate locks.json
+==============================================================================
+Task         : Bash
+Description  : Run a Bash script on macOS, Linux, or Windows
+Version      : 3.250.1
+Author       : Microsoft Corporation
+Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/utility/bash
+==============================================================================
+Generating script.
+========================== Starting Command Output ===========================
+/usr/bin/bash /home/vsts/work/_temp/b39092be-ef2e-43f9-8b99-530be13a08b9.sh
+🔍 Searching for locks.json under /home/vsts/work/1/locks_artifact...
+find: ‘/home/vsts/work/1/locks_artifact’: No such file or directory
+
+##[error]Bash exited with code '1'.
+Finishing: 🔍 Debug: Locate locks.json
