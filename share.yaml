@@ -1,162 +1,42 @@
-# Azure DevOps Pipeline: Remove Role Assignment with Lock Management
+Starting: 🔒 Manage Locks and Remove
+==============================================================================
+Task         : Azure CLI
+Description  : Run Azure CLI commands against an Azure subscription in a PowerShell Core/Shell script when running on Linux agent or PowerShell/PowerShell Core/Batch script when running on Windows agent.
+Version      : 2.256.0
+Author       : Microsoft Corporation
+Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/deploy/azure-cli
+==============================================================================
+/usr/bin/az --version
+WARNING: You have 2 update(s) available. Consider updating your CLI installation with 'az upgrade'
+azure-cli                         2.74.0 *
 
-parameters:
-  - name: targetEnvironment
-    displayName: Target Environment
-    type: string
-    default: development
-    values:
-      - development
-      - test
-      - acceptance
-      - production
+core                              2.74.0 *
+telemetry                          1.1.0
 
-  - name: ObjectId
-    displayName: Object ID to remove access (Format: xxxx-xxx-xxx-xxx-xxx)
-    type: string
+Extensions:
+azure-devops                       1.0.2
 
-  - name: Scope
-    displayName: Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)
-    type: string
+Dependencies:
+msal                              1.32.3
+azure-mgmt-resource               23.3.0
 
-  - name: RoleDefinitionName
-    displayName: Name of the Role to be removed (Reader, Contributor, etc)
-    type: string
+Python location '/opt/az/bin/python3'
+Config directory '/home/vsts/.azure'
+Extensions directory '/opt/az/azcliextensions'
 
-variables:
-  - group: Abnamro.Coesd.VariableGroup.GlobalVars
-  - template: ../parameter/global.variables.yml
-  - template: ../parameter/${{parameters.targetEnvironment}}.variables.yml
+Python (Linux) 3.12.10 (main, May 27 2025, 09:12:37) [GCC 13.3.0]
 
-trigger: none
-pr: none
+Legal docs and information: aka.ms/AzureCliLegal
 
-stages:
-  - stage: RemoveRBACStage
-    displayName: Remove RBAC Role
-    jobs:
-      - job: RemoveRBAC
-        displayName: Manage Locks and Remove RBAC
-        steps:
-          - task: AzureCLI@2
-            name: ManageLocks
-            displayName: "🔒 Manage Locks and Remove"
-            inputs:
-              azureSubscription: '${{ variables.ResourceGroupName }}'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                set -e
-                SCOPE="${{ parameters.Scope }}"
-                SUBSCRIPTION_ID=$(echo "$SCOPE" | cut -d'/' -f3)
-                RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="resourceGroups") print $(i+1)}')
-                RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+2)}')
-                RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
-                NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1; i<=NF; i++) if ($i=="providers") print $(i+1)}')
 
-                echo "Scope: $SCOPE"
-                echo "Subscription ID: $SUBSCRIPTION_ID"
-                echo "RG: $RESOURCE_GROUP"
-                echo "Type: $RESOURCE_TYPE"
-                echo "Name: $RESOURCE_NAME"
-                echo "Namespace: $NAMESPACE"
-
-                az account set --subscription "$SUBSCRIPTION_ID"
-
-                LOCKS=$(az lock list \
-                  --resource-group "$RESOURCE_GROUP" \
-                  --namespace "$NAMESPACE" \
-                  --resource-type "$RESOURCE_TYPE" \
-                  --resource-name "$RESOURCE_NAME" \
-                  -o json)
-
-                echo "$LOCKS" > $(Pipeline.Workspace)/out/locks.json
-                echo "🔒 Locks JSON written to out/locks.json"
-
-                for row in $(echo "$LOCKS" | jq -r '.[] | @base64'); do
-                  _jq() {
-                    echo ${row} | base64 --decode | jq -r ${1}
-                  }
-
-                  LOCK_ID=$(_jq '.id')
-                  LOCK_NAME=$(_jq '.name')
-
-                  echo "Removing lock: $LOCK_NAME at $LOCK_ID"
-                  az lock delete --ids "$LOCK_ID"
-                  echo "Lock '$LOCK_NAME' removed."
-                done
-
-          - task: PublishBuildArtifacts@1
-            displayName: '📤 Publish Locks Artifact'
-            inputs:
-              pathToPublish: '$(Pipeline.Workspace)/out'
-              artifactName: 'locks'
-
-          - task: AzurePowerShell@5
-            name: RemoveRBACRole
-            displayName: "🗑️ Remove RBAC Role"
-            inputs:
-              azurePowerShellVersion: LatestVersion
-              azureSubscription: '${{ variables.ResourceGroupName }}'
-              ScriptType: InlineScript
-              Inline: |
-                $ErrorActionPreference = "Stop"
-                $ObjectId = "${{ parameters.ObjectId }}"
-                $Scope = "${{ parameters.Scope }}"
-                $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
-
-                $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -ErrorAction Stop | Where-Object {
-                  $_.RoleDefinitionName -eq $RoleDefinitionName
-                }
-
-                if (-not $roleAssignments) {
-                  Write-Output "No matching role assignments found."
-                } else {
-                  foreach ($assignment in $roleAssignments) {
-                    Write-Output "Removing: $($assignment.RoleDefinitionName) at $($assignment.Scope)"
-                    Remove-AzRoleAssignment -ObjectId $assignment.ObjectId -Scope $assignment.Scope -RoleDefinitionName $assignment.RoleDefinitionName -Verbose
-                  }
-                }
-
-      - job: RestoreLocks
-        displayName: Restore Locks
-        dependsOn: RemoveRBAC
-        steps:
-          - task: DownloadPipelineArtifact@2
-            displayName: '📥 Download Locks Artifact'
-            inputs:
-              artifactName: 'locks'
-              targetPath: '$(Pipeline.Workspace)/out'
-
-          - task: AzureCLI@2
-            displayName: '🔁 Restore Locks'
-            inputs:
-              azureSubscription: '${{ variables.ResourceGroupName }}'
-              scriptType: 'bash'
-              scriptLocation: 'inlineScript'
-              inlineScript: |
-                set -e
-                LOCK_FILE="$(Pipeline.Workspace)/out/locks.json"
-
-                if [ ! -f "$LOCK_FILE" ]; then
-                  echo "❌ Lock file not found: $LOCK_FILE"
-                  exit 1
-                fi
-
-                LOCKS=$(cat "$LOCK_FILE")
-                COUNT=$(echo "$LOCKS" | jq length)
-                echo "🔁 Restoring $COUNT locks..."
-
-                for row in $(echo "$LOCKS" | jq -r '.[] | @base64'); do
-                  _jq() {
-                    echo ${row} | base64 --decode | jq -r ${1}
-                  }
-
-                  LOCK_ID=$(_jq '.id')
-                  LOCK_NAME=$(_jq '.name')
-                  LOCK_LEVEL=$(_jq '.level')
-
-                  echo "Restoring lock: $LOCK_NAME"
-                  az lock create --name "$LOCK_NAME" --lock-type "$LOCK_LEVEL" --ids "$LOCK_ID"
-                  echo "✅ Lock '$LOCK_NAME' restored."
-                done
+Setting AZURE_CONFIG_DIR env variable to: /home/vsts/work/_temp/.azclitask
+Setting active cloud to: AzureCloud
+/usr/bin/az cloud set -n AzureCloud
+/usr/bin/az login --service-principal -u *** --password=*** --tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d --allow-no-subscriptions
+[
+  {
+    "cloudName": "AzureCloud",
+    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "id": "b658ffad-30c7-4be6-881c-e3dc1f6520af",
+    "isDefault": true,
+    "managedByTenants": [
