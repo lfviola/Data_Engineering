@@ -1,3 +1,29 @@
+\
+    "name": "dqe-d-lz",
+    "state": "Enabled",
+    "tenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "user": {
+      "name": "***",
+      "type": "servicePrincipal"
+    }
+  },
+  {
+    "cloudName": "AzureCloud",
+    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "id": "15d4702f-a4cf-4e5b-9ee3-38f46ff79e69",
+    "isDefault": false,
+    "managedByTenants": [],
+    "name": "ahsm-d-lz",
+    "state": "Enabled",
+    "tenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
+    "user": {
+      "name": "***",
+      "type": "servicePrincipal"
+    }
+  }
+]
+/usr/bin/az account set --subscription eb940d7e-b120-4388-bbe7-4bee414e415b
+/usr/bin/bash /home/vsts/work/_temp/azureclitaskscript1752566315784.sh
 Scope: /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf
 Subscription ID: eb940d7e-b120-4388-bbe7-4bee414e415b
 RG: dqe3-d-rg
@@ -5,8 +31,17 @@ Type: factories
 Name: dqe3-d-01-adf
 Namespace: Microsoft.DataFactory
 🔒 Locks JSON written to out/locks.json
-Removing lock: mylock at /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf/providers/Microsoft.Authorization/locks/mylock
-Lock 'mylock' removed.
+Removing lock: lcik at /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf/providers/Microsoft.Authorization/locks/lcik
+Lock 'lcik' removed.
+Removing lock: my_lock at /subscriptions/eb940d7e-b120-4388-bbe7-4bee414e415b/resourceGroups/dqe3-d-rg/providers/Microsoft.DataFactory/factories/dqe3-d-01-adf/providers/Microsoft.Authorization/locks/my_lock
+Lock 'my_lock' removed.
+
+/usr/bin/az account clear
+Finishing: Manage Locks and Remove
+
+Publish Locks Artifact
+
+View raw log
 
 Starting: Publish Locks Artifact
 ==============================================================================
@@ -19,8 +54,8 @@ Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/utility/p
 Async Command Start: Upload Artifact
 Uploading 1 files
 File upload succeed.
-Upload '/home/vsts/work/1/s/out' to file container: '#/49947596/locks'
-Associated artifact 10201224 with build 13156326
+Upload '/home/vsts/work/1/s/out' to file container: '#/49966028/locks'
+Associated artifact 10209460 with build 13169839
 Async Command End: Upload Artifact
 Finishing: Publish Locks Artifact
 
@@ -34,7 +69,7 @@ Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/utility/b
 ==============================================================================
 Generating script.
 ========================== Starting Command Output ===========================
-/usr/bin/bash /home/vsts/work/_temp/b39092be-ef2e-43f9-8b99-530be13a08b9.sh
+/usr/bin/bash /home/vsts/work/_temp/57b2e657-2023-4e09-bd5e-7185130366d3.sh
 🔍 Searching for locks.json under /home/vsts/work/1/locks_artifact...
 find: ‘/home/vsts/work/1/locks_artifact’: No such file or directory
 
