@@ -1,42 +1,229 @@
-Starting: 🔒 Manage Locks and Remove
-==============================================================================
-Task         : Azure CLI
-Description  : Run Azure CLI commands against an Azure subscription in a PowerShell Core/Shell script when running on Linux agent or PowerShell/PowerShell Core/Batch script when running on Windows agent.
-Version      : 2.256.0
-Author       : Microsoft Corporation
-Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/deploy/azure-cli
-==============================================================================
-/usr/bin/az --version
-WARNING: You have 2 update(s) available. Consider updating your CLI installation with 'az upgrade'
-azure-cli                         2.74.0 *
+parameters:
+  - name: targetEnvironment
+    displayName: Target Environment
+    type: string
+    default: development
+    values:
+      - development
+      - test
+      - acceptance
+      - production
 
-core                              2.74.0 *
-telemetry                          1.1.0
+  - name: ObjectId 
+    displayName: "Object ID to remove access (Format: xxxx-xxx-xxx-xxx-xxx)"
+    type: string
 
-Extensions:
-azure-devops                       1.0.2
+  - name: Scope
+    displayName: "Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)"
+    type: string
 
-Dependencies:
-msal                              1.32.3
-azure-mgmt-resource               23.3.0
+  - name: RoleDefinitionName
+    displayName: Name of the Role to be removed (Reader, Contributor, etc)
+    type: string
 
-Python location '/opt/az/bin/python3'
-Config directory '/home/vsts/.azure'
-Extensions directory '/opt/az/azcliextensions'
+variables:
+  - group: Abnamro.Coesd.VariableGroup.GlobalVars 
+  - template: ../parameter/global.variables.yml
+  - template: ../parameter/${{ parameters.targetEnvironment }}.variables.yml  
 
-Python (Linux) 3.12.10 (main, May 27 2025, 09:12:37) [GCC 13.3.0]
+trigger: none
+pr: none
 
-Legal docs and information: aka.ms/AzureCliLegal
+stages:
+- stage: RemoveRBACStage
+  displayName: Remove RBAC Role
+  jobs:
 
+  # ----------------------------
+  # Job 1: Remove Locks + RBAC
+  # ----------------------------
+  - job: RemoveRBAC
+    displayName: Remove RBAC Role
 
-Setting AZURE_CONFIG_DIR env variable to: /home/vsts/work/_temp/.azclitask
-Setting active cloud to: AzureCloud
-/usr/bin/az cloud set -n AzureCloud
-/usr/bin/az login --service-principal -u *** --password=*** --tenant 3a15904d-3fd9-4256-a753-beb05cdf0c6d --allow-no-subscriptions
-[
-  {
-    "cloudName": "AzureCloud",
-    "homeTenantId": "3a15904d-3fd9-4256-a753-beb05cdf0c6d",
-    "id": "b658ffad-30c7-4be6-881c-e3dc1f6520af",
-    "isDefault": true,
-    "managedByTenants": [
+    steps:
+    - task: AzureCLI@2
+      name: ManageLocks
+      displayName: "Manage Locks and Remove"
+      inputs:
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        scriptType: 'bash'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          SCOPE="${{ parameters.Scope }}"
+          SUBSCRIPTION_ID=$(echo "$SCOPE" | cut -d'/' -f3)
+          RESOURCE_GROUP=$(echo "$SCOPE" | awk -F'/' '{for (i=1;i<=NF;i++) if ($i=="resourceGroups") print $(i+1)}')
+          RESOURCE_TYPE=$(echo "$SCOPE" | awk -F'/' '{for (i=1;i<=NF;i++) if ($i=="providers") print $(i+2)}')
+          RESOURCE_NAME=$(echo "$SCOPE" | awk -F'/' '{print $NF}')
+          NAMESPACE=$(echo "$SCOPE" | awk -F'/' '{for (i=1;i<=NF;i++) if ($i=="providers") print $(i+1)}')
+
+          echo "##vso[task.setvariable variable=SCOPE;isOutput=true]$SCOPE"
+          echo "##vso[task.setvariable variable=SUBSCRIPTION_ID;isOutput=true]$SUBSCRIPTION_ID"
+          echo "##vso[task.setvariable variable=RESOURCE_GROUP;isOutput=true]$RESOURCE_GROUP"
+          echo "##vso[task.setvariable variable=RESOURCE_TYPE;isOutput=true]$RESOURCE_TYPE"
+          echo "##vso[task.setvariable variable=RESOURCE_NAME;isOutput=true]$RESOURCE_NAME"
+          echo "##vso[task.setvariable variable=NAMESPACE;isOutput=true]$NAMESPACE"
+
+          az account set --subscription "$SUBSCRIPTION_ID"
+
+          locks=$(az lock list \
+            --resource-group "$RESOURCE_GROUP" \
+            --namespace "$NAMESPACE" \
+            --resource-type "$RESOURCE_TYPE" \
+            --resource-name "$RESOURCE_NAME" \
+            -o json | jq -c .)
+
+          mkdir -p out
+          echo "$locks" > $(System.DefaultWorkingDirectory)/out/locks.json
+          echo "🔒 Locks JSON written to out/locks.json"
+
+          if [ "$(echo "$locks" | jq 'length')" -eq 0 ]; then
+            echo "No locks found at scope $SCOPE."
+            exit 0
+          fi
+
+          for row in $(echo "$locks" | jq -r '.[] | @base64'); do
+            _jq() {
+              echo "${row}" | base64 --decode | jq -r "$1"
+            }
+
+            LOCK_NAME=$(_jq '.name')
+            LOCK_ID=$(_jq '.id')
+
+            echo "Removing lock: $LOCK_NAME at $LOCK_ID"
+            az lock delete --ids "$LOCK_ID"
+            echo "Lock '$LOCK_NAME' removed."
+          done
+
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(System.DefaultWorkingDirectory)/out'
+        artifactName: 'LocksArtifact'
+        publishLocation: 'pipeline'
+
+    - task: Bash@3
+      displayName: "🔍 Debug: Locate locks.json"
+      inputs:
+        targetType: 'inline'
+        script: |
+          echo "🔍 Searching for locks.json under $(System.DefaultWorkingDirectory)/locks..."
+          find $(System.DefaultWorkingDirectory)/out -type f -name "locks.json"
+
+    - task: AzurePowerShell@5
+      name: RemoveRBACRole
+      displayName: "Remove RBAC Role"
+      inputs:
+        azurePowerShellVersion: LatestVersion
+        azureSubscription: '${{ variables.ResourceGroupName }}'
+        ScriptType: InlineScript
+        Inline: |
+          $ErrorActionPreference = "Stop"
+
+          $ObjectId = "${{ parameters.ObjectId }}"
+          $Scope = "${{ parameters.Scope }}"
+          $RoleDefinitionName = "${{ parameters.RoleDefinitionName }}"
+
+          try {
+              $roleAssignments = Get-AzRoleAssignment -ObjectId $ObjectId -Scope $Scope -ErrorAction Stop | Where-Object {
+                  $_.RoleDefinitionName -eq $RoleDefinitionName
+              }
+
+              if (-not $roleAssignments) {
+                  Write-Output "No matching role assignments found directly at the specified scope."
+              } else {
+                  foreach ($assignment in $roleAssignments) {
+                      Write-Output "Attempting to remove role assignment at scope: $($assignment.Scope)"
+                      try {
+                          Remove-AzRoleAssignment `
+                            -ObjectId $assignment.ObjectId `
+                            -Scope $assignment.Scope `
+                            -RoleDefinitionName $assignment.RoleDefinitionName `
+                            -Verbose -ErrorAction Stop
+
+                          Write-Output "Removed successfully."
+                      } catch {
+                          Write-Error "Failed to remove role assignment: $_"
+                      }
+                  }
+              }
+          } catch {
+              Write-Error "Error fetching role assignments or permissions issue: $_"
+          }
+
+  # ----------------------------
+  # Job 2: Restore Locks
+  # ----------------------------
+  - job: RestoreLocksJob
+    displayName: Restore Locks
+    dependsOn: RemoveRBAC
+    variables:
+      SCOPE: $[ dependencies.RemoveRBAC.outputs['SCOPE'] ]
+      SUBSCRIPTION_ID: $[ dependencies.RemoveRBAC.outputs['SUBSCRIPTION_ID'] ]
+      RESOURCE_GROUP: $[ dependencies.RemoveRBAC.outputs['RESOURCE_GROUP'] ]
+      RESOURCE_TYPE: $[ dependencies.RemoveRBAC.outputs['RESOURCE_TYPE'] ]
+      RESOURCE_NAME: $[ dependencies.RemoveRBAC.outputs['RESOURCE_NAME'] ]
+      NAMESPACE: $[ dependencies.RemoveRBAC.outputs['NAMESPACE'] ]
+    steps:
+
+      - task: DownloadPipelineArtifact@2
+        inputs:
+          artifactName: 'LocksArtifact'
+          targetPath: '$(System.DefaultWorkingDirectory)/downloadedLocks'
+
+      - task: AzureCLI@2
+        displayName: "Restore Locks"
+        inputs:
+          azureSubscription: '${{ variables.ResourceGroupName }}'
+          scriptType: 'bash'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            echo "🔁 Starting lock restore step..."
+
+            LOCK_FILE="$(System.DefaultWorkingDirectory)/downloadedLocks/locks.json"
+
+            echo "🔍 Looking for lock file: $LOCK_FILE"
+            if [ ! -f "$LOCK_FILE" ]; then
+              echo "❌ Lock file not found!"
+              exit 1
+            fi
+
+            echo "📦 Reading contents of $LOCK_FILE:"
+            cat "$LOCK_FILE"
+
+            LOCKS_JSON=$(cat "$LOCK_FILE")
+
+            echo "$LOCKS_JSON" | jq '.' || {
+              echo "❌ Invalid JSON in lock file"
+              exit 1
+            }
+
+            if [ "$(echo "$LOCKS_JSON" | jq 'length')" -eq 0 ]; then
+              echo "✅ No locks to restore."
+              exit 0
+            fi
+
+            for row in $(echo "$LOCKS_JSON" | jq -r '.[] | @base64'); do
+              _jq() {
+                echo "${row}" | base64 --decode | jq -r "$1"
+              }
+
+              LOCK_NAME=$(_jq '.name')
+              LOCK_LEVEL=$(_jq '.level')
+              LOCK_ID=$(_jq '.id')
+              LOCK_SCOPE=$(echo "$LOCK_ID" | sed 's|/providers/.*||')
+
+              echo "🔐 Restoring lock: $LOCK_NAME ($LOCK_LEVEL) at $LOCK_SCOPE"
+              echo "Resource Group Variable: $(RESOURCE_GROUP)"
+
+              az lock create \
+                --name "$LOCK_NAME" \
+                --resource-group $(RESOURCE_GROUP) \
+                --lock-type "$LOCK_LEVEL" \
+                --resource-type $(RESOURCE_TYPE) \
+                --resource-name $(RESOURCE_NAME)
+
+              if [ $? -ne 0 ]; then
+                  echo "Error occurred while creating the lock."
+                  exit 1
+              fi
+              echo "✅ Lock '$LOCK_NAME' restored."
+            done
