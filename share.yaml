@@ -14,7 +14,7 @@ parameters:
     type: string
 
   - name: Scope
-    displayName: "Scope to have the access removed (Format: /subscriptions/xxx-xxx-xxx-xxx-xxx/resourceGroups/xxx)"
+    displayName: "Scope to have the access removed (Format: /subscriptions/xxx/resourceGroups/xxx/...)"
     type: string
 
   - name: RoleDefinitionName
@@ -34,15 +34,12 @@ stages:
   displayName: Remove RBAC Role
   jobs:
 
-  # ----------------------------
-  # Job 1: Remove Locks + RBAC
-  # ----------------------------
   - job: RemoveRBAC
     displayName: Remove RBAC Role
 
     steps:
     - task: AzureCLI@2
-      name: ManageLocks
+      name: extractVars
       displayName: "Manage Locks and Remove"
       inputs:
         azureSubscription: '${{ variables.ResourceGroupName }}'
@@ -100,14 +97,6 @@ stages:
         artifactName: 'LocksArtifact'
         publishLocation: 'pipeline'
 
-    - task: Bash@3
-      displayName: "🔍 Debug: Locate locks.json"
-      inputs:
-        targetType: 'inline'
-        script: |
-          echo "🔍 Searching for locks.json under $(System.DefaultWorkingDirectory)/locks..."
-          find $(System.DefaultWorkingDirectory)/out -type f -name "locks.json"
-
     - task: AzurePowerShell@5
       name: RemoveRBACRole
       displayName: "Remove RBAC Role"
@@ -149,18 +138,15 @@ stages:
               Write-Error "Error fetching role assignments or permissions issue: $_"
           }
 
-  # ----------------------------
-  # Job 2: Restore Locks
-  # ----------------------------
   - job: RestoreLocksJob
     displayName: Restore Locks
     dependsOn: RemoveRBAC
     variables:
-      RESOURCE_GROUP: $(RESOURCE_GROUP)
-      RESOURCE_TYPE: $(RESOURCE_TYPE)
-      RESOURCE_NAME: $(RESOURCE_NAME)
-    steps:
+      RESOURCE_GROUP: $[ dependencies.RemoveRBAC.outputs['extractVars.RESOURCE_GROUP'] ]
+      RESOURCE_TYPE:  $[ dependencies.RemoveRBAC.outputs['extractVars.RESOURCE_TYPE'] ]
+      RESOURCE_NAME:  $[ dependencies.RemoveRBAC.outputs['extractVars.RESOURCE_NAME'] ]
 
+    steps:
       - task: DownloadPipelineArtifact@2
         inputs:
           artifactName: 'LocksArtifact'
@@ -174,7 +160,6 @@ stages:
           scriptLocation: 'inlineScript'
           inlineScript: |
             echo "🔁 Starting lock restore step..."
-
             LOCK_FILE="$(System.DefaultWorkingDirectory)/downloadedLocks/locks.json"
 
             echo "🔍 Looking for lock file: $LOCK_FILE"
